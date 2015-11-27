@@ -88,7 +88,7 @@ def convertName2Index(namedData):
     index2string = dict()
     string2index = dict()
 
-    nextIndex = 0
+    nextIndex = 1  # IMPORTANT: svmlight indices must start at 1, not 0!!!
     for target, namedFeatures, info in namedData:
 
         # Convert named features into indexed features
