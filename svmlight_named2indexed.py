@@ -29,7 +29,6 @@ def loadSVMLightData(filepath):
     """
     data = list()
     comments = list()
-    # DEBUG = 0
     with open(filepath) as f:
         for line in f:
             line = line.strip()
@@ -39,10 +38,6 @@ def loadSVMLightData(filepath):
                 else:
                     item = _parseDataLine(line)
                     data.append(item)
-            # if DEBUG < 10:
-            #     DEBUG += 1
-            # else:
-            #     break
     return data, comments
 
 
