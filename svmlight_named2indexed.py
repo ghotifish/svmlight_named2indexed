@@ -124,71 +124,40 @@ class Indexer:
             self.mappingWriter = None
 
 
-def loadSVMLightData(filepath):
+def loadSVMLightData(filename):
     """
     Load a file containing train/test data following the svmlight input format.
-    :param filepath: The input data file
+    :param filename: The input data file
     :return: The tuple (ITEMS, COMMENTS), where ITEMS is a list of tuples (TARGET, [(FEATURE,VALUE)], INFO)
              and COMMENTS is a list of comment lines
     """
-    with open(filepath) as f:
-        comments = _loadSVMLightComments(f)
-        data = _loadSVMLightData(f)
-        return data, comments
+    data = list()
+    comments = list()
+    for dataitem, comment in loadSVMLightDataIter(filename):
+        if dataitem is not None:
+            data.append(dataitem)
+
+        if comment is not None:
+            comments.append(comment)
+    return data, comments
 
 
-def loadSVMLightComments(filepath):
-    """
-    Load the initial comments found at the start of an svmlight data file.
-    :param filepath: The input data file
-    :return: A list of comment lines. Lines are complete with # at start, but without newline character at the end.
-    """
-    with open(filepath) as f:
-        return _loadSVMLightComments(f)
-
-
-def _loadSVMLightData(reader):
-    """
-    Load a file containing train/test data following the svmlight input format.
-    Direct access via reader object.
-    Expects that the reader already read in the initial comment lines
-    :param reader: A reader object
-    :return: A list of tuples (TARGET, FEATURES, INFO) where FEATURES is a list of tuples (FEATURE,VALUE)
-    """
-    return [item for item in _loadSVMLightDataIter(reader)]
-
-
-def _loadSVMLightDataIter(reader):
+def loadSVMLightDataIter(filename):
     """
     Iterator that loads a file containing train/test data following the svmlight input format.
-    Direct access via reader object.
-    Expects that the reader already read in the initial comment lines
-    :param reader: A reader object
-    :return: A list of tuples (TARGET, FEATURES, INFO) where FEATURES is a list of tuples (FEATURE,VALUE)
+    Returns a tuple (DATAITEM, COMMENT), one of which is always None.
+    When not None, DATAITEM is a tuple (TARGET, FEATURES, INFO) where FEATURES is a list of tuples (FEATURE,VALUE)
+    When not None, COMMENT is a string.
     """
-    for line in reader:
-        line = line.strip()
-        if len(line) > 0:
-            item = _parseDataLine(line)
-            yield item
-
-
-def _loadSVMLightComments(reader):
-    """
-    Load the initial comments found at the start of an svmlight data file.
-    Direct access via reader object.
-    :param reader: A reader object
-    :return: A list of comment lines. Lines are complete with # at start, but without newline character at the end.
-    """
-    comments = list()
-    for line in reader:
-        line = line.strip()
-        if len(line) > 0:
-            if line.startswith('#'):
-                comments.append(line)
-            else:
-                break
-    return comments
+    with open(filename) as f:
+        for line in f:
+            line = line.strip()
+            if len(line) > 0:
+                if line.startswith('#'):  # Comment line
+                    yield None, line
+                else:
+                    item = _parseDataLine(line)  # Data line
+                    yield item, None
 
 
 def _parseDataLine(line):
@@ -211,7 +180,8 @@ def _parseDataLine(line):
 
 def writeSVMLightData(filepath, data, comments=None):
     with open(filepath, 'w') as w:
-        _writeSVMLightData_Comments(w, comments)
+        for comment in comments:
+            _writeSVMLightData_Comment(w, comment)
 
         for target, features, info in data:
             _writeSVMLightData_DataItem(w, target, features, info)
@@ -223,11 +193,10 @@ def _writeSVMLightData_DataItem(writer, target, features, info):
     writer.write(line)
 
 
-def _writeSVMLightData_Comments(writer, comments):
-    if comments is not None:
-        for comment in comments:
-            writer.write(comment)
-            writer.write('\n')
+def _writeSVMLightData_Comment(writer, comment):
+    if comment is not None:
+        writer.write(comment)
+        writer.write('\n')
 
 
 def writeIndex2NameMapping(filepath, index2name):
@@ -277,20 +246,22 @@ def generateIndexedDataSequential(inputFile, outputFile, mappingFile=None, verbo
                 print "Saving indexed data to:         ", outputFile
                 print "Saving index-to-name mapping to:", mappingFile
 
-        with open(inputFile) as f:
-            with open(outputFile, 'w') as w:
-                comments = _loadSVMLightComments(f)
-                _writeSVMLightData_Comments(w, comments)
+        with open(outputFile, 'w') as w:
+            # Iterate over all data items
+            i = 0
+            for dataitem, comment in loadSVMLightDataIter(inputFile):
+                if comment is not None:
+                    _writeSVMLightData_Comment(w, comment)
 
-                # Iterate over all data items
-                i = 0
-                for i, (target, namedFeatures, info) in enumerate(_loadSVMLightDataIter(f)):
-                    if verbose and i % 1000 == 999:
-                        print "Processed {0} entries".format(i+1)
+                if dataitem is not None:
+                    i += 1
+                    if verbose and i % 1000 == 0:
+                        print "Processed {0} entries".format(i)
+                    target, namedFeatures, info = dataitem
                     namedFeatures = indexer.getIndicesForFeatureList(namedFeatures)
                     _writeSVMLightData_DataItem(w, target, namedFeatures, info)
-                if verbose:
-                    print "Finished after processing a total of {0} entries".format(i+1)
+            if verbose:
+                print "Finished after processing a total of {0} entries".format(i+1)
 
         if mappingFile is not None:
             indexer.deactivateIndex2NameMappingLiveWriting()
