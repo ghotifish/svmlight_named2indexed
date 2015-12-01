@@ -41,6 +41,51 @@ def loadSVMLightData(filepath):
     return data, comments
 
 
+def loadSVMLightComments(filepath):
+    """
+    Load the initial comments found at the start of an svmlight data file.
+    :param filepath: The input data file
+    :return: A list of comment lines. Lines are complete with # at start, but without newline character at the end.
+    """
+    with open(filepath) as f:
+        return _loadSVMLightComments(f)
+
+
+def _loadSVMLightData(reader):
+    """
+    Load a file containing train/test data following the svmlight input format.
+    Direct access via reader object.
+    Expects that the reader already read in the initial comment lines
+    :param reader: A reader object
+    :return: A list of tuples (TARGET, FEATURES, INFO) where FEATURES is a list of tuples (FEATURE,VALUE)
+    """
+    data = list()
+    for line in reader:
+        line = line.strip()
+        if len(line) > 0:
+            item = _parseDataLine(line)
+            data.append(item)
+    return data
+
+
+def _loadSVMLightComments(reader):
+    """
+    Load the initial comments found at the start of an svmlight data file.
+    Direct access via reader object.
+    :param reader: A reader object
+    :return: A list of comment lines. Lines are complete with # at start, but without newline character at the end.
+    """
+    comments = list()
+    for line in reader:
+        line = line.strip()
+        if len(line) > 0:
+            if line.startswith('#'):
+                comments.append(line)
+            else:
+                break
+    return comments
+
+
 def _parseDataLine(line):
     if len(line) == 0:
         return None
