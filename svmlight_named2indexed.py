@@ -212,26 +212,7 @@ def convertName2Index(namedData):
     return indexedData, index2string
 
 
-def generateIndexedData(inputFile, outputfile, mappingFile=None, verbose=False):
-    with Timer("Data conversion took", verbose=verbose):
-        if verbose:
-            print "Loading data from", inputFile
-        inputData, comments = loadSVMLightData(inputFile)
-        if verbose:
-            print "Converting data"
-        outputData, index2name = convertName2Index(inputData)
-        if verbose:
-            print "Writing data to", outputfile
-        writeSVMLightData(outputfile, outputData, comments)
-
-    with Timer("Writing mapping took", verbose=verbose):
-        if mappingFile is not None:
-            if verbose:
-                print "Writing mapping to", mappingFile
-            writeIndex2NameMapping(mappingFile, index2name)
-
-
-def generateIndexedDataSequential(inputFile, outputFile, mappingFile=None, verbose=False):
+def generateIndexedData(inputFile, outputFile, mappingFile=None, verbose=False):
     with Timer('Conversion took', verbose=verbose):
         indexer = Indexer()
         if mappingFile is not None:
@@ -268,15 +249,12 @@ def generateIndexedDataSequential(inputFile, outputFile, mappingFile=None, verbo
 
 
 def main(args):
-    optlist, args = getopt(args[1:], 'vs', ['verbose', 'seq', 'sequential'])
+    optlist, args = getopt(args[1:], 'v', ['verbose'])
 
     verbose = False
-    useSequential = False
     for opt, _ in optlist:
         if opt in ['-v', '--verbose']:
             verbose = True
-        elif opt in ['-s', '--seq', '--sequential']:
-            useSequential = True
 
     if 2 > len(args) > 3:
         print "USAGE: python svmlight_named2indexed.py INPUT_DATA OUTPUT_DATA [INDEX_MAPPING_FILE]"
@@ -288,10 +266,7 @@ def main(args):
         outputfile = args[1]
         mappingFile = args[2] if len(args) > 2 else None
 
-        if useSequential:
-            generateIndexedDataSequential(inputFile, outputfile, mappingFile, verbose)
-        else:
-            generateIndexedData(inputFile, outputfile, mappingFile, verbose)
+        generateIndexedData(inputFile, outputfile, mappingFile, verbose)
 
 if __name__ == '__main__':
     main(sys.argv)
