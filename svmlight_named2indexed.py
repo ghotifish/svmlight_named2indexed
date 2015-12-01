@@ -16,8 +16,112 @@ Tested for Python 2.7
 """
 import sys
 from getopt import gnu_getopt as getopt
+from tools.timer import Timer
 
 __author__ = 'Marc Schulder'
+
+
+class Indexer:
+    def __init__(self):
+        self.knownFeatures = list()
+        self.string2index = dict()
+        self.nextIndex = 1  # IMPORTANT: svmlight indices must start at 1, not 0!!!
+        self.mappingWriter = None
+
+    def getIndex4Feature(self, feature):
+        """
+        Convert named features into indexed features
+        :param feature: A named feature
+        :return: Index for the feature
+        """
+        if feature == 'qid':
+            # Special qid feature; receives no index
+            featureIndex = feature
+        elif feature in self.string2index:
+            # Encountered a known feature
+            featureIndex = self.string2index[feature]
+        else:
+            # Encountered a new feature
+            featureIndex = self.nextIndex
+            self.knownFeatures.append(feature)
+            self.string2index[feature] = featureIndex
+            self.nextIndex += 1
+            if self.mappingWriter is not None:
+                self._addIndex2NameMapping(self.mappingWriter, featureIndex, feature)
+        return featureIndex
+
+    def getIndicesForFeatureList(self, featureValuePairs):
+        """
+        Replace named features with their indices
+        :param featureValuePairs: List of tuples (featureName, value)
+        :return: List of tuples (featureIndex, value)
+        """
+        indexedFeatures = list()
+        for namedFeature, value in featureValuePairs:
+            indexedFeature = self.getIndex4Feature(namedFeature)
+            indexedFeatures.append((indexedFeature, value))
+
+        # Ensure that indices are in ascending order
+        indexedFeatures.sort()
+
+        return indexedFeatures
+
+    def getIndexedDataItem(self, target, featureValuePairs, info):
+        """
+        Create a new data item that replaces named features with their indices.
+        :param target: Label of the data item
+        :param featureValuePairs: List of tuples (featureName, value)
+        :param info: Info comment for data item
+        :return: (target, [(featureIndex, value)], info)
+        """
+        # Convert named features into indexed features
+        indexedFeatures = self.getIndicesForFeatureList(featureValuePairs)
+        return target, indexedFeatures, info
+
+    def saveIndex2NameMapping(self, filename):
+        """
+        Save the mapping from feature indices to feature names that the indexer has generated so far
+        """
+        with open(filename, 'w') as w:
+            self._saveIndex2NameMapping(w)
+
+    def _saveIndex2NameMapping(self, writer=None):
+        """
+        Given a file writer, save mapping from feature indices to feature names that the indexer has generated so far.
+        If no writer is provided, it is checked whether a live writer was activated via
+            activateIndex2NameMappingLiveWriting(). If that is not the case, nothing happens.
+        """
+        if writer is None:
+            writer = self.mappingWriter
+
+        if writer is not None:
+            for i, name in enumerate(self.knownFeatures):
+                index = i + 1  # IMPORTANT: svmlight indices start at 1, not 0!!!
+                self._addIndex2NameMapping(writer, index, name)
+
+    @staticmethod
+    def _addIndex2NameMapping(writer, index, name):
+        writer.write('{0} {1}\n'.format(index, name))
+
+    def activateIndex2NameMappingLiveWriting(self, filename):
+        """
+        Continuously save the mappings from feature indices to feature names as they are generated.
+        If mappings exist before function is activated, they are instantly saved when this function is called.
+        Remember to call deactivateIndex2NameMappingLiveWriting() to close the file writer.
+        """
+        if filename is not None:
+            self.mappingWriter = open(filename, 'w')
+            if len(self.knownFeatures) > 0:
+                self._saveIndex2NameMapping()
+
+    def deactivateIndex2NameMappingLiveWriting(self):
+        """
+        Stop the constant writing of "index to feature name" mappings and close the file writer.
+        :return:
+        """
+        if self.mappingWriter is not None:
+            self.mappingWriter.close()
+            self.mappingWriter = None
 
 
 def loadSVMLightData(filepath):
@@ -27,18 +131,10 @@ def loadSVMLightData(filepath):
     :return: The tuple (ITEMS, COMMENTS), where ITEMS is a list of tuples (TARGET, [(FEATURE,VALUE)], INFO)
              and COMMENTS is a list of comment lines
     """
-    data = list()
-    comments = list()
     with open(filepath) as f:
-        for line in f:
-            line = line.strip()
-            if len(line) > 0:
-                if line.startswith('#'):
-                    comments.append(line)
-                else:
-                    item = _parseDataLine(line)
-                    data.append(item)
-    return data, comments
+        comments = _loadSVMLightComments(f)
+        data = _loadSVMLightData(f)
+        return data, comments
 
 
 def loadSVMLightComments(filepath):
@@ -59,13 +155,22 @@ def _loadSVMLightData(reader):
     :param reader: A reader object
     :return: A list of tuples (TARGET, FEATURES, INFO) where FEATURES is a list of tuples (FEATURE,VALUE)
     """
-    data = list()
+    return [item for item in _loadSVMLightDataIter(reader)]
+
+
+def _loadSVMLightDataIter(reader):
+    """
+    Iterator that loads a file containing train/test data following the svmlight input format.
+    Direct access via reader object.
+    Expects that the reader already read in the initial comment lines
+    :param reader: A reader object
+    :return: A list of tuples (TARGET, FEATURES, INFO) where FEATURES is a list of tuples (FEATURE,VALUE)
+    """
     for line in reader:
         line = line.strip()
         if len(line) > 0:
             item = _parseDataLine(line)
-            data.append(item)
-    return data
+            yield item
 
 
 def _loadSVMLightComments(reader):
@@ -106,15 +211,23 @@ def _parseDataLine(line):
 
 def writeSVMLightData(filepath, data, comments=None):
     with open(filepath, 'w') as w:
-        if comments is not None:
-            for comment in comments:
-                w.write(comment)
-                w.write('\n')
+        _writeSVMLightData_Comments(w, comments)
 
         for target, features, info in data:
-            featuresText = ' '.join(['{0}:{1}'.format(feature, value) for feature, value in features])
-            line = '{0} {1} {2}\n'.format(target, featuresText, info)
-            w.write(line)
+            _writeSVMLightData_DataItem(w, target, features, info)
+
+
+def _writeSVMLightData_DataItem(writer, target, features, info):
+    featuresText = ' '.join(['{0}:{1}'.format(feature, value) for feature, value in features])
+    line = '{0} {1} {2}\n'.format(target, featuresText, info)
+    writer.write(line)
+
+
+def _writeSVMLightData_Comments(writer, comments):
+    if comments is not None:
+        for comment in comments:
+            writer.write(comment)
+            writer.write('\n')
 
 
 def writeIndex2NameMapping(filepath, index2name):
@@ -124,71 +237,90 @@ def writeIndex2NameMapping(filepath, index2name):
 
 
 def convertName2Index(namedData):
-    indexedData = list()
-    index2string = dict()
-    string2index = dict()
-
-    nextIndex = 1  # IMPORTANT: svmlight indices must start at 1, not 0!!!
-    for target, namedFeatures, info in namedData:
-
-        # Convert named features into indexed features
-        indexedFeatures = list()
-        for namedFeature, value in namedFeatures:
-            if namedFeature == 'qid':
-                # Special qid feature; receives no index
-                indexedFeature = namedFeature
-            elif namedFeature in string2index:
-                # Encountered a known feature
-                indexedFeature = string2index[namedFeature]
-            else:
-                # Encountered a new feature
-                indexedFeature = nextIndex
-                index2string[nextIndex] = namedFeature
-                string2index[namedFeature] = nextIndex
-                nextIndex += 1
-            indexedFeatures.append((indexedFeature, value))
-
-        # Ensure that indices are in ascending order
-        indexedFeatures.sort()
-
-        indexedData.append((target, indexedFeatures, info))
-
+    indexer = Indexer()
+    indexedData = [indexer.getIndexedDataItem(target, features, info) for target, features, info in namedData]
+    index2string = {i+1: feature for i, feature in enumerate(indexer.knownFeatures)}
     return indexedData, index2string
 
 
-def generateIndexedData(inputFile, outputfile, mappingFile, verbose=False):
-    if verbose:
-        print "Loading data from", inputFile
-    inputData, comments = loadSVMLightData(inputFile)
-    if verbose:
-        print "Converting data"
-    outputData, index2name = convertName2Index(inputData)
-    if verbose:
-        print "Writing data to", outputfile
-    writeSVMLightData(outputfile, outputData, comments)
-    if mappingFile is not None:
+def generateIndexedData(inputFile, outputfile, mappingFile=None, verbose=False):
+    with Timer("Data conversion took", verbose=verbose):
         if verbose:
-            print "Writing mapping to", mappingFile
-        writeIndex2NameMapping(mappingFile, index2name)
+            print "Loading data from", inputFile
+        inputData, comments = loadSVMLightData(inputFile)
+        if verbose:
+            print "Converting data"
+        outputData, index2name = convertName2Index(inputData)
+        if verbose:
+            print "Writing data to", outputfile
+        writeSVMLightData(outputfile, outputData, comments)
+
+    with Timer("Writing mapping took", verbose=verbose):
+        if mappingFile is not None:
+            if verbose:
+                print "Writing mapping to", mappingFile
+            writeIndex2NameMapping(mappingFile, index2name)
+
+
+def generateIndexedDataSequential(inputFile, outputFile, mappingFile=None, verbose=False):
+    with Timer('Conversion took', verbose=verbose):
+        indexer = Indexer()
+        if mappingFile is not None:
+            indexer.activateIndex2NameMappingLiveWriting(mappingFile)
+
+        if verbose:
+            if mappingFile is None:
+                print "Loading named data from:", inputFile
+                print "Saving indexed data to: ", outputFile
+            else:
+                print "Loading named data from:        ", inputFile
+                print "Saving indexed data to:         ", outputFile
+                print "Saving index-to-name mapping to:", mappingFile
+
+        with open(inputFile) as f:
+            with open(outputFile, 'w') as w:
+                comments = _loadSVMLightComments(f)
+                _writeSVMLightData_Comments(w, comments)
+
+                # Iterate over all data items
+                i = 0
+                for i, (target, namedFeatures, info) in enumerate(_loadSVMLightDataIter(f)):
+                    if verbose and i % 1000 == 999:
+                        print "Processed {0} entries".format(i+1)
+                    namedFeatures = indexer.getIndicesForFeatureList(namedFeatures)
+                    _writeSVMLightData_DataItem(w, target, namedFeatures, info)
+                if verbose:
+                    print "Finished after processing a total of {0} entries".format(i+1)
+
+        if mappingFile is not None:
+            indexer.deactivateIndex2NameMappingLiveWriting()
 
 
 def main(args):
-    optlist, args = getopt(args[1:], 'v', ['verbose'])
+    optlist, args = getopt(args[1:], 'vs', ['verbose', 'seq', 'sequential'])
 
     verbose = False
+    useSequential = False
     for opt, _ in optlist:
         if opt in ['-v', '--verbose']:
             verbose = True
+        elif opt in ['-s', '--seq', '--sequential']:
+            useSequential = True
 
     if 2 > len(args) > 3:
         print "USAGE: python svmlight_named2indexed.py INPUT_DATA OUTPUT_DATA [INDEX_MAPPING_FILE]"
         print "OPTIONS: -v/--verbose: Add verbose output"
+        print "OPTIONS: -s/--seq/--sequential: " \
+              "Process data sequentially, immediately writing output as data becomes available"
     else:
         inputFile = args[0]
         outputfile = args[1]
         mappingFile = args[2] if len(args) > 2 else None
 
-        generateIndexedData(inputFile, outputfile, mappingFile, verbose)
+        if useSequential:
+            generateIndexedDataSequential(inputFile, outputfile, mappingFile, verbose)
+        else:
+            generateIndexedData(inputFile, outputfile, mappingFile, verbose)
 
 if __name__ == '__main__':
     main(sys.argv)
