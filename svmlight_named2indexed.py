@@ -259,8 +259,6 @@ def main(args):
     if 2 > len(args) > 3:
         print "USAGE: python svmlight_named2indexed.py INPUT_DATA OUTPUT_DATA [INDEX_MAPPING_FILE]"
         print "OPTIONS: -v/--verbose: Add verbose output"
-        print "OPTIONS: -s/--seq/--sequential: " \
-              "Process data sequentially, immediately writing output as data becomes available"
     else:
         inputFile = args[0]
         outputfile = args[1]
