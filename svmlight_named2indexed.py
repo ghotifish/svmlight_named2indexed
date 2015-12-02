@@ -16,7 +16,7 @@ Tested for Python 2.7
 """
 import sys
 from getopt import gnu_getopt as getopt
-from tools.timer import Timer
+from timer import Timer
 
 __author__ = 'Marc Schulder'
 
