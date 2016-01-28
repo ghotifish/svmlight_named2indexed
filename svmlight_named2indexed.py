@@ -57,9 +57,14 @@ class Indexer:
         :return: List of tuples (featureIndex, value)
         """
         indexedFeatures = list()
+        usedIndices = set()
         for namedFeature, value in featureValuePairs:
             indexedFeature = self.getIndex4Feature(namedFeature)
             indexedFeatures.append((indexedFeature, value))
+            if indexedFeature in usedIndices:
+                raise ValueError("Duplicate feature: {0}".format(namedFeature))
+            else:
+                usedIndices.add(indexedFeature)
 
         # Ensure that indices are in ascending order
         indexedFeatures.sort()
