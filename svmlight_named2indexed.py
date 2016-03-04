@@ -15,6 +15,7 @@ you provide
 Tested for Python 2.7
 """
 import sys
+from os import path
 from getopt import gnu_getopt as getopt
 from timer import Timer
 
@@ -251,6 +252,20 @@ def generateIndexedData(inputFile, outputFile, mappingFile=None, verbose=False):
 
         if mappingFile is not None:
             indexer.deactivateIndex2NameMappingLiveWriting()
+
+
+def generateIndexedData4File(outputName, dataDir):
+    """
+    Convenience function to generate indexed data for a given stringdata file.
+    Output files will have same location and name as input file, except for their file extension.
+    :param outputName: Name of the input and output files, without the respective file extensions
+    :param dataDir: Directory for input and output files
+    """
+    outStringDataFile = path.join(dataDir, '{0}.stringdata'.format(outputName))
+    outDataFile = path.join(dataDir, '{0}.data'.format(outputName))
+    mappingFile = path.join(dataDir, '{0}.features'.format(outputName))
+
+    generateIndexedData(outStringDataFile, outDataFile, mappingFile)
 
 
 def main(args):
